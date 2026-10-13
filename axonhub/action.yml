@@ -1,0 +1,116 @@
+name: AxonHub to Heroku
+description: Build a Debian-based AxonHub image, configure Heroku, release and check its health.
+author: Bookpple
+
+inputs:
+  heroku_api_key:
+    description: Heroku API key. Pass it from GitHub Secrets.
+    required: true
+  docker_image:
+    description: Upstream AxonHub image tag or digest, containing /app/axonhub.
+    default: looplj/axonhub@sha256:581c334e7d03f62acdf9f987181c17d18d01f18aca896522e6e826c34038f123
+  runtime_image:
+    description: Debian-compatible runtime image with apt-get.
+    default: debian:bookworm-slim
+  heroku_app_name:
+    description: App name. When creating an app, an empty value generates axonhub plus a random suffix.
+  create_new_app:
+    description: Create the app if it does not exist. Existing accessible apps are reused.
+    default: 'false'
+  heroku_region:
+    description: Region used only when creating an app (us or eu).
+    default: us
+  heroku_team:
+    description: Optional team used only when creating an app.
+  dyno_type:
+    description: Optional dyno type (eco, basic, standard-1x, etc.). Empty preserves the current/default type.
+  web_dynos:
+    description: Number of web dynos to start. Requires a compatible Heroku plan.
+    default: '1'
+  db_dialect:
+    description: Remote database dialect (postgres, postgresql, mysql, tidb, or compatible aliases).
+    default: postgres
+  db_dsn:
+    description: Database DSN from GitHub Secrets. Empty preserves the existing Heroku DSN.
+  log_level:
+    description: AxonHub log level.
+    default: info
+  log_encoding:
+    description: AxonHub log encoding (console or json).
+    default: console
+  heroku_config_vars:
+    description: Additional KEY=VALUE variables, one per line or multiple quoted pairs on one line. Never shell-evaluated.
+  heroku_config_vars_json:
+    description: Additional JSON object of string values. JSON null removes a variable. Overrides KEY=VALUE input.
+  dockerhub_username:
+    description: Optional Docker Hub username.
+  dockerhub_token:
+    description: Optional Docker Hub token from GitHub Secrets.
+  wait_for_health:
+    description: Wait for web dynos to be up and for the HTTP health check to succeed.
+    default: 'true'
+  healthcheck_path:
+    description: Health path, relative to AXONHUB_SERVER_BASE_PATH.
+    default: /health
+  healthcheck_timeout:
+    description: Maximum seconds to wait for deployment health.
+    default: '180'
+  show_logs:
+    description: Print recent runtime logs after deployment, including on failure.
+    default: 'true'
+  log_lines:
+    description: Number of runtime log lines (1 to 1500).
+    default: '200'
+
+outputs:
+  app_name:
+    description: Heroku app name.
+    value: ${{ steps.deploy.outputs.app_name }}
+  app_url:
+    description: App URL returned by Heroku.
+    value: ${{ steps.deploy.outputs.app_url }}
+  image:
+    description: Heroku registry image reference.
+    value: ${{ steps.deploy.outputs.image }}
+  image_id:
+    description: Locally built Docker image ID.
+    value: ${{ steps.deploy.outputs.image_id }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Heroku CLI
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v heroku >/dev/null 2>&1; then
+          curl -fsSL https://cli-assets.heroku.com/install.sh | sh
+        fi
+
+    - name: Deploy AxonHub
+      id: deploy
+      shell: bash
+      env:
+        INPUT_HEROKU_API_KEY: ${{ inputs.heroku_api_key }}
+        INPUT_DOCKER_IMAGE: ${{ inputs.docker_image }}
+        INPUT_RUNTIME_IMAGE: ${{ inputs.runtime_image }}
+        INPUT_HEROKU_APP_NAME: ${{ inputs.heroku_app_name }}
+        INPUT_CREATE_NEW_APP: ${{ inputs.create_new_app }}
+        INPUT_HEROKU_REGION: ${{ inputs.heroku_region }}
+        INPUT_HEROKU_TEAM: ${{ inputs.heroku_team }}
+        INPUT_DYNO_TYPE: ${{ inputs.dyno_type }}
+        INPUT_WEB_DYNOS: ${{ inputs.web_dynos }}
+        INPUT_DB_DIALECT: ${{ inputs.db_dialect }}
+        INPUT_DB_DSN: ${{ inputs.db_dsn }}
+        INPUT_LOG_LEVEL: ${{ inputs.log_level }}
+        INPUT_LOG_ENCODING: ${{ inputs.log_encoding }}
+        INPUT_HEROKU_CONFIG_VARS: ${{ inputs.heroku_config_vars }}
+        INPUT_HEROKU_CONFIG_VARS_JSON: ${{ inputs.heroku_config_vars_json }}
+        INPUT_DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
+        INPUT_DOCKERHUB_TOKEN: ${{ inputs.dockerhub_token }}
+        INPUT_WAIT_FOR_HEALTH: ${{ inputs.wait_for_health }}
+        INPUT_HEALTHCHECK_PATH: ${{ inputs.healthcheck_path }}
+        INPUT_HEALTHCHECK_TIMEOUT: ${{ inputs.healthcheck_timeout }}
+        INPUT_SHOW_LOGS: ${{ inputs.show_logs }}
+        INPUT_LOG_LINES: ${{ inputs.log_lines }}
+      run: python3 "$GITHUB_ACTION_PATH/deploy.py"
