@@ -1,0 +1,95 @@
+name: Deploy AxonHub to Heroku
+
+on:
+  workflow_dispatch:
+    inputs:
+      heroku_app_name:
+        description: Heroku 应用名；留空并勾选创建时自动生成
+        type: string
+        required: false
+      create_new_app:
+        description: 应用不存在时创建；已存在时直接更新
+        type: boolean
+        default: true
+      docker_image:
+        description: AxonHub 官方镜像版本或 digest
+        type: string
+        required: true
+        default: looplj/axonhub@sha256:581c334e7d03f62acdf9f987181c17d18d01f18aca896522e6e826c34038f123
+      runtime_image:
+        description: Debian 兼容运行层
+        type: string
+        default: debian:bookworm-slim
+      heroku_region:
+        description: 新应用所在区域
+        type: choice
+        options:
+          - us
+          - eu
+        default: us
+      dyno_type:
+        description: 可选套餐类型，如 eco 或 basic；留空保留当前或默认类型
+        type: string
+        required: false
+      web_dynos:
+        description: 启动 web 实例数量；需要套餐支持
+        type: number
+        default: 1
+      healthcheck_timeout:
+        description: 等待部署健康的秒数
+        type: number
+        default: 180
+      wait_for_health:
+        description: 等待 web 实例及 HTTP 健康检查通过
+        type: boolean
+        default: true
+      heroku_config_vars:
+        description: 额外 KEY=VALUE，支持多行或一行多个；敏感值请用 Secrets
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: axonhub-${{ inputs.heroku_app_name || 'new-app' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout action repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Deploy AxonHub
+        id: axonhub
+        uses: ./axonhub
+        with:
+          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+          heroku_app_name: ${{ inputs.heroku_app_name }}
+          create_new_app: ${{ inputs.create_new_app }}
+          docker_image: ${{ inputs.docker_image }}
+          runtime_image: ${{ inputs.runtime_image }}
+          heroku_region: ${{ inputs.heroku_region }}
+          heroku_team: ${{ vars.HEROKU_TEAM }}
+          dyno_type: ${{ inputs.dyno_type }}
+          web_dynos: ${{ inputs.web_dynos }}
+          db_dialect: ${{ vars.AXONHUB_DB_DIALECT || 'postgres' }}
+          db_dsn: ${{ secrets.AXONHUB_DB_DSN }}
+          log_level: ${{ vars.AXONHUB_LOG_LEVEL || 'info' }}
+          log_encoding: ${{ vars.AXONHUB_LOG_ENCODING || 'console' }}
+          heroku_config_vars: |
+            ${{ inputs.heroku_config_vars }}
+            ${{ secrets.HEROKU_CONFIG_VARS }}
+          heroku_config_vars_json: ${{ secrets.HEROKU_CONFIG_VARS_JSON }}
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+          wait_for_health: ${{ inputs.wait_for_health }}
+          healthcheck_path: ${{ vars.AXONHUB_HEALTHCHECK_PATH || '/health' }}
+          healthcheck_timeout: ${{ inputs.healthcheck_timeout }}
+          show_logs: ${{ vars.AXONHUB_SHOW_LOGS || 'true' }}
+          log_lines: ${{ vars.AXONHUB_LOG_LINES || '200' }}
