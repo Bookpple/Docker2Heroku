@@ -50,8 +50,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s uptime-kuma/tests -v
+          python3 -B -m unittest discover -s uptime-kuma/tests -v
           sh -n uptime-kuma/heroku-entrypoint.sh
+          sh -n uptime-kuma/exec-command.sh
 
       - name: Deploy Uptime Kuma
         id: kuma
