@@ -6,6 +6,7 @@ import itertools
 import json
 import os
 from pathlib import Path
+import shlex
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -170,7 +171,7 @@ class DeploymentTests(unittest.TestCase):
         def run(args, **kwargs):
             calls.append((args, dict(instance.env)))
             if args[:2] == ["docker", "build"]:
-                for name in ("Dockerfile", "heroku-entrypoint.sh"):
+                for name in ("Dockerfile", "heroku-entrypoint.sh", "exec-command.sh"):
                     self.assertNotIn(b"\r\n", Path(args[-1], name).read_bytes())
             if args[:2] == ["docker", "run"]:
                 return "KUMA_SMOKE_OK\n"
@@ -181,16 +182,32 @@ class DeploymentTests(unittest.TestCase):
         instance.run = run
         original_env = instance.env
         instance.build()
-        args, environment = next(call for call in calls if call[0][:2] == ["docker", "run"])
-        self.assertIn("12345:12345", args)
-        self.assertEqual(args[args.index("--network") + 1], "none")
-        self.assertEqual(environment["AIVEN_CA_BASE64"], CA)
-        self.assertNotIn(CA, args)
-        self.assertNotIn(DATABASE["UPTIME_KUMA_DB_PASSWORD"], args)
-        self.assertEqual(environment["UPTIME_KUMA_DB_PASSWORD"], "smoke")
-        self.assertEqual(environment["PORT"], "18543")
-        self.assertEqual(environment["UPTIME_KUMA_PORT"], "3001")
+        containers = [call for call in calls if call[0][:2] == ["docker", "run"]]
+        self.assertEqual(len(containers), 2)
+        for args, environment in containers:
+            self.assertIn("12345:12345", args)
+            self.assertEqual(args[args.index("--network") + 1], "none")
+            self.assertEqual(environment["AIVEN_CA_BASE64"], CA)
+            self.assertNotIn(CA, args)
+            self.assertNotIn(DATABASE["UPTIME_KUMA_DB_PASSWORD"], args)
+            self.assertEqual(environment["UPTIME_KUMA_DB_PASSWORD"], "smoke")
+            self.assertEqual(environment["PORT"], "18543")
+            self.assertEqual(environment["UPTIME_KUMA_PORT"], "3001")
+        argv = containers[0][0]
+        command_string = containers[1][0]
+        self.assertEqual(argv[argv.index(instance.image) + 1:], ["node", "-e", deploy.SMOKE_SCRIPT])
+        self.assertEqual(len(command_string[command_string.index(instance.image) + 1:]), 1)
+        self.assertEqual(shlex.split(command_string[-1]), ["node", "-e", deploy.SMOKE_SCRIPT])
         self.assertIs(instance.env, original_env)
+
+    def test_heroku_command_smoke_failure_stops_build(self):
+        instance = self.instance()
+        instance.run = Mock(side_effect=["", "", "KUMA_SMOKE_OK\n", "no smoke marker"])
+        original_env = instance.env
+        with self.assertRaisesRegex(deploy.DeployError, "Heroku command string"):
+            instance.build()
+        self.assertIs(instance.env, original_env)
+        self.assertEqual(instance.image_id, "")
 
     def test_release_pushes_then_stops_before_config_and_starts_one_dyno(self):
         instance = self.instance()

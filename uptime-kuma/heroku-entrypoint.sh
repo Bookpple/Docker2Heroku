@@ -39,4 +39,4 @@ unset UPTIME_KUMA_DB_USERNAME_FILE UPTIME_KUMA_DB_PASSWORD_FILE NODE_TLS_REJECT_
 
 printf '[heroku-entrypoint] Starting Uptime Kuma on port %s with Aiven CA verification\n' "$PORT"
 cd /app
-exec "$@"
+exec /bin/sh /app/exec-command.sh "$@"

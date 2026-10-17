@@ -98,7 +98,7 @@ jobs:
 ## 发布检查、更新和限制
 
 - 需要 Linux runner、Docker、Python 3、可访问的上游镜像和 Heroku 账号；需要时自动安装 Heroku CLI。`dockerhub_username` / `dockerhub_token` 可选，但必须一起传入。
-- 镜像构建后，先用任意非 root UID、关闭容器网络运行检查：版本为 v2、`PORT` 覆盖旧的 3001、数据目录可写、CA 可解析、TLS 关闭标志已清除。该检查不连接真实数据库。
+- 镜像构建后，分别用 Docker 参数数组和 Heroku 单个命令字符串运行同一套检查：任意非 root UID、关闭容器网络、版本为 v2、`PORT` 覆盖旧的 3001、数据目录可写、CA 可解析、TLS 关闭标志已清除。任一启动形式失败都会中止发布。该检查不连接真实数据库。
 - 更新时先完成构建、检查和镜像推送，再把旧 web 缩到 0 并等待退出，然后修改配置、发布、启动单个 web。会有短暂监控暂停，防止旧实例先用新配置启动及重复执行监控。
 - 若停止旧 web 后发布失败，应用可能保持停止状态；检查日志、修正配置后重新运行 workflow。不自动回滚镜像或数据库迁移。跨版本更新前须备份数据库，必要时按备份恢复。
 - 健康检查默认等待 300 秒，同时要求仅一个本次 release 的 web 为 `up`，以及 `/setup-database-info` 返回 `runningSetup=false` 和 `needSetup=false`。只打开首页不算成功。此接口证明启动阶段完成，不能证明所有监控都正常或提供持续的数据库探测。
@@ -112,10 +112,17 @@ Action 还支持 `heroku_team`、`wait_for_health`（默认 `true`）、`healthc
 从 Docker2Heroku 仓库根目录检查：
 
 ```bash
-python3 -m unittest discover -s uptime-kuma/tests -v
+python3 -B -m unittest discover -s uptime-kuma/tests -v
 sh -n uptime-kuma/heroku-entrypoint.sh
+sh -n uptime-kuma/exec-command.sh
 ```
 
-测试的 `tests/fixtures/ca.pem` 是公开 CA 证书，仅用于离线解析测试，不含私钥，也不是实际 Aiven 配置。真实 Docker smoke check 和 Heroku 发布在 GitHub runner 执行。
+测试的 `tests/fixtures/ca.pem` 是公开 CA 证书，仅用于离线解析测试，不含私钥，也不是实际 Aiven 配置。启动器集成测试使用真实 POSIX shell 和 Node，分别验证 Heroku 单命令字符串、Docker 参数数组、引号和退出状态。Windows 可用 `KUMA_TEST_SHELL` 指定 Git 安装目录中的 `usr/bin/sh.exe`。真实 Docker smoke check 和 Heroku 发布在 GitHub runner 执行。
+
+## `exec: node server/server.js: not found` 排查
+
+这个完整报错表示 shell 把 `node server/server.js` 当成了一个可执行文件名。Heroku 可把镜像的 CMD 合成单个命令字符串，而 Docker 本地运行通常传入可执行文件和独立参数。`exec-command.sh` 对前者使用 shell 解析，对后者保留参数边界；入口最后通过 `exec` 交接进程。配置值通过环境变量传递，不拼接到启动命令中。
+
+出现该错误时，提交包含 `exec-command.sh`、Dockerfile、入口和部署脚本的修正，然后从最新分支重新 **Run workflow**，应用名填写原名称。重启 dyno 仍使用旧镜像；GitHub 的 **Re-run jobs** 也会继续使用原运行的旧提交。重新构建发布后才会使用修正。
 
 官方依据：[Heroku 容器要求](https://devcenter.heroku.com/articles/container-registry-and-runtime)、[启动行为](https://devcenter.heroku.com/articles/dyno-startup-behavior)、[Aiven CA 与轮换](https://aiven.io/docs/platform/concepts/tls-ssl-certificates)、[GitHub Composite Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/metadata-syntax#runs-for-composite-actions)。

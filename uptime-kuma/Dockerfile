@@ -2,7 +2,7 @@ ARG UPTIME_KUMA_IMAGE
 FROM ${UPTIME_KUMA_IMAGE}
 
 WORKDIR /app
-COPY --chmod=755 heroku-entrypoint.sh /app/heroku-entrypoint.sh
+COPY --chmod=755 heroku-entrypoint.sh exec-command.sh /app/
 
 ENV NODE_ENV=production \
     DATA_DIR=/tmp/uptime-kuma

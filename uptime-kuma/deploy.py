@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import shutil
 import ssl
 import subprocess
@@ -334,7 +335,7 @@ class Deployer:
                       "--password-stdin"], stdin=self.docker_token + "\n")
         self.log("Building linux/amd64 image from " + self.source_image)
         with tempfile.TemporaryDirectory(prefix="uptime-kuma-heroku-") as directory:
-            for name in ("Dockerfile", "heroku-entrypoint.sh"):
+            for name in ("Dockerfile", "heroku-entrypoint.sh", "exec-command.sh"):
                 source = Path(__file__).parent / name
                 # Normalize CRLF even when a caller has core.autocrlf enabled.
                 Path(directory, name).write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
@@ -350,16 +351,17 @@ class Deployer:
         for key in ("PORT", "UPTIME_KUMA_PORT", *DATABASE_INPUTS.values(), "UPTIME_KUMA_DB_TYPE",
                     "NODE_TLS_REJECT_UNAUTHORIZED", "UPTIME_KUMA_DB_CA"):
             args.extend(["-e", key])
-        args.extend([self.image, "node", "-e", SMOKE_SCRIPT])
+        command = ["node", "-e", SMOKE_SCRIPT]
         original_env = self.env
         try:
             self.env = smoke_env
-            output = self.run(args, capture=True, timeout=60)
+            for mode, startup in (("Docker argv", command), ("Heroku command string", [shlex.join(command)])):
+                output = self.run([*args, self.image, *startup], capture=True, timeout=60)
+                if "KUMA_SMOKE_OK" not in output.splitlines():
+                    raise DeployError(f"{mode} startup, CA, writable-directory or dynamic-port smoke check failed")
         finally:
             self.env = original_env
-        if "KUMA_SMOKE_OK" not in output.splitlines():
-            raise DeployError("Non-root startup, CA, writable-directory or dynamic-port smoke check failed")
-        self.log("Non-root v2 runtime, dynamic port, writable directory and CA smoke check passed (offline)")
+        self.log("Docker argv and Heroku command string smoke checks passed: non-root v2 runtime, dynamic port, writable directory and CA (offline)")
         self.image_id = self.run(["docker", "inspect", "--format={{.Id}}", self.image], capture=True).strip()
 
     def ensure_app(self):
