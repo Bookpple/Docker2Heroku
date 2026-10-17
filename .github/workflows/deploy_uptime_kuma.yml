@@ -46,10 +46,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Test deployment logic and shell syntax
+      - name: Prepare files and test deployment logic
         shell: bash
         run: |
           set -euo pipefail
+          python3 -B uptime-kuma/deploy.py --prepare-files
           python3 -B -m unittest discover -s uptime-kuma/tests -v
           sh -n uptime-kuma/heroku-entrypoint.sh
           sh -n uptime-kuma/exec-command.sh
