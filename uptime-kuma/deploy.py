@@ -1,5 +1,6 @@
 """Build and deploy Uptime Kuma without interpolating configuration into shell code."""
 
+import argparse
 import base64
 import binascii
 import json
@@ -21,6 +22,7 @@ from urllib.request import Request, urlopen
 
 CONFIG_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 IMAGE_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/:@-]*\Z")
+BUILD_FILES = ("Dockerfile", "heroku-entrypoint.sh", "exec-command.sh")
 MANAGED_KEYS = {
     "PORT", "UPTIME_KUMA_PORT", "UPTIME_KUMA_HOST", "DATA_DIR",
     "UPTIME_KUMA_DB_CA", "UPTIME_KUMA_DB_CA_FILE", "UPTIME_KUMA_DB_SSL_FILE",
@@ -64,6 +66,26 @@ console.log('KUMA_SMOKE_OK');
 
 class DeployError(Exception):
     pass
+
+
+def normalize_source(data):
+    return data.removeprefix(b"\xef\xbb\xbf").replace(b"\r\n", b"\n")
+
+
+def prepare_files(directory):
+    """Normalize only the Linux build files, before CI invokes its shell parser."""
+    changed = []
+    for name in BUILD_FILES:
+        path = Path(directory) / name
+        try:
+            original = path.read_bytes()
+            normalized = normalize_source(original)
+            if normalized != original:
+                path.write_bytes(normalized)
+                changed.append(name)
+        except OSError:
+            raise DeployError(f"Could not prepare build file {name}") from None
+    return changed
 
 
 def read_input(name, default=""):
@@ -335,10 +357,10 @@ class Deployer:
                       "--password-stdin"], stdin=self.docker_token + "\n")
         self.log("Building linux/amd64 image from " + self.source_image)
         with tempfile.TemporaryDirectory(prefix="uptime-kuma-heroku-") as directory:
-            for name in ("Dockerfile", "heroku-entrypoint.sh", "exec-command.sh"):
+            for name in BUILD_FILES:
                 source = Path(__file__).parent / name
-                # Normalize CRLF even when a caller has core.autocrlf enabled.
-                Path(directory, name).write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
+                # Apply the same normalization used before CI shell checks.
+                Path(directory, name).write_bytes(normalize_source(source.read_bytes()))
             self.run(["docker", "build", "--pull", "--platform", "linux/amd64",
                       "--build-arg", "UPTIME_KUMA_IMAGE=" + self.source_image, "-t", self.image, directory])
         smoke_env = dict(self.env, PORT="18543", UPTIME_KUMA_PORT="3001",
@@ -482,4 +504,15 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--prepare-files", action="store_true", help="Normalize build files to UTF-8 without BOM and LF; no deployment")
+    arguments = parser.parse_args()
+    if arguments.prepare_files:
+        try:
+            for filename in prepare_files(Path(__file__).parent):
+                print(f"Normalized {filename} to UTF-8/LF")
+        except DeployError as error:
+            print(f"::error::{error}", flush=True)
+            sys.exit(1)
+    else:
+        sys.exit(main())

@@ -112,6 +112,7 @@ Action 还支持 `heroku_team`、`wait_for_health`（默认 `true`）、`healthc
 从 Docker2Heroku 仓库根目录检查：
 
 ```bash
+python3 -B uptime-kuma/deploy.py --prepare-files
 python3 -B -m unittest discover -s uptime-kuma/tests -v
 sh -n uptime-kuma/heroku-entrypoint.sh
 sh -n uptime-kuma/exec-command.sh
@@ -124,5 +125,11 @@ sh -n uptime-kuma/exec-command.sh
 这个完整报错表示 shell 把 `node server/server.js` 当成了一个可执行文件名。Heroku 可把镜像的 CMD 合成单个命令字符串，而 Docker 本地运行通常传入可执行文件和独立参数。`exec-command.sh` 对前者使用 shell 解析，对后者保留参数边界；入口最后通过 `exec` 交接进程。配置值通过环境变量传递，不拼接到启动命令中。
 
 出现该错误时，提交包含 `exec-command.sh`、Dockerfile、入口和部署脚本的修正，然后从最新分支重新 **Run workflow**，应用名填写原名称。重启 dyno 仍使用旧镜像；GitHub 的 **Re-run jobs** 也会继续使用原运行的旧提交。重新构建发布后才会使用修正。
+
+## Linux shell 换行错误排查
+
+如果语法错误指向 case 语句末尾的 in，检查脚本是否使用 Windows CRLF 换行：Linux shell 会把末尾的回车识别为 token 的一部分。仓库根目录的 .gitattributes 为本模块的 .sh 和 Dockerfile 固定 text eol=lf，提交时必须一起保留这个文件。
+
+workflow 会在单元测试和 sh -n 前执行 deploy.py --prepare-files，将三个构建文件中的 CRLF 转成 LF 并移除 UTF-8 BOM。构建镜像时也使用相同的规范化逻辑，防止通过网页上传或其他编辑方式重新引入换行问题。此准备命令不会连接 Heroku 或修改数据库配置。
 
 官方依据：[Heroku 容器要求](https://devcenter.heroku.com/articles/container-registry-and-runtime)、[启动行为](https://devcenter.heroku.com/articles/dyno-startup-behavior)、[Aiven CA 与轮换](https://aiven.io/docs/platform/concepts/tls-ssl-certificates)、[GitHub Composite Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/metadata-syntax#runs-for-composite-actions)。

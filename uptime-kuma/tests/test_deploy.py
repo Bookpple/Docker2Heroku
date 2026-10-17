@@ -51,6 +51,24 @@ class DeploymentTests(unittest.TestCase):
         instance.config = deploy.effective_configuration({}, instance.changes)
         return instance
 
+    def test_prepare_files_removes_crlf_and_bom_before_shell_checks(self):
+        source = b'#!/bin/sh\r\ncase "$PORT" in\r\n    *) exit 0 ;;\r\nesac\r\n'
+        with tempfile.TemporaryDirectory() as directory:
+            for name in deploy.BUILD_FILES:
+                Path(directory, name).write_bytes(b"\xef\xbb\xbf" + source)
+            untouched = Path(directory, "heroku-config.json")
+            untouched.write_bytes(b'{"MESSAGE":"keep"}\r\n')
+            self.assertEqual(set(deploy.prepare_files(directory)), set(deploy.BUILD_FILES))
+            for name in deploy.BUILD_FILES:
+                self.assertEqual(Path(directory, name).read_bytes(), source.replace(b"\r\n", b"\n"))
+            self.assertEqual(untouched.read_bytes(), b'{"MESSAGE":"keep"}\r\n')
+            self.assertEqual(deploy.prepare_files(directory), [])
+
+    def test_prepare_files_reports_missing_build_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(deploy.DeployError, "Could not prepare build file Dockerfile"):
+                deploy.prepare_files(directory)
+
     def test_literal_configuration_never_runs_a_shell(self):
         text = "PASSWORD=don't expand $HOME $(touch marker) `id` &=value\nMESSAGE=hello world\nEMPTY=\n"
         with patch.object(deploy.subprocess, "run") as command:
