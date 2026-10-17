@@ -1,0 +1,85 @@
+name: Deploy Uptime Kuma to Heroku
+
+on:
+  workflow_dispatch:
+    inputs:
+      heroku_app_name:
+        description: Heroku 应用名；首次留空可自动生成，更新时填写原名称
+        type: string
+        required: false
+      create_new_app:
+        description: 应用不存在时创建，已存在时更新
+        type: boolean
+        default: true
+      docker_image:
+        description: 填旧实例的精确 v2 镜像 tag 或 digest，禁止浮动的 :2 / :latest
+        type: string
+        required: true
+      heroku_region:
+        description: 新应用区域，建议靠近现有 Aiven 数据库
+        type: choice
+        options: [eu, us]
+        default: eu
+      dyno_type:
+        description: 常驻套餐，如 basic / standard-1x；不支持 eco
+        type: string
+        default: basic
+      healthcheck_timeout:
+        description: 等待部署就绪的秒数，不改变 Heroku 启动时限
+        type: number
+        default: 300
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime-kuma-${{ inputs.heroku_app_name || 'new-app' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout deployment files
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Test deployment logic and shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s uptime-kuma/tests -v
+          sh -n uptime-kuma/heroku-entrypoint.sh
+
+      - name: Deploy Uptime Kuma
+        id: kuma
+        uses: ./uptime-kuma
+        with:
+          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+          docker_image: ${{ inputs.docker_image }}
+          heroku_app_name: ${{ inputs.heroku_app_name }}
+          create_new_app: ${{ inputs.create_new_app }}
+          heroku_region: ${{ inputs.heroku_region }}
+          heroku_team: ${{ vars.HEROKU_TEAM }}
+          dyno_type: ${{ inputs.dyno_type }}
+
+          # 可直接在此填写非敏感值，也可以使用同名 Repository Variables / Secrets。
+          db_hostname: ${{ secrets.UPTIME_KUMA_DB_HOSTNAME || vars.UPTIME_KUMA_DB_HOSTNAME }}
+          db_port: ${{ secrets.UPTIME_KUMA_DB_PORT || vars.UPTIME_KUMA_DB_PORT }}
+          db_name: ${{ secrets.UPTIME_KUMA_DB_NAME || vars.UPTIME_KUMA_DB_NAME }}
+          db_username: ${{ secrets.UPTIME_KUMA_DB_USERNAME }}
+          db_password: ${{ secrets.UPTIME_KUMA_DB_PASSWORD }}
+          aiven_ca_base64: ${{ secrets.AIVEN_CA_BASE64 }}
+
+          # 独立文件存放可公开配置；下面的 workflow 设置覆盖文件中的同名键。
+          config_file: uptime-kuma/heroku-config.json
+          heroku_config_vars: |
+            TZ=Asia/Shanghai
+          # 可选：集中管理配置，或用 JSON null 删除旧变量；不要提交真实凭证。
+          heroku_config_vars_json: ${{ secrets.UPTIME_KUMA_HEROKU_CONFIG_JSON }}
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+          healthcheck_timeout: ${{ inputs.healthcheck_timeout }}
+          wait_for_health: 'true'
