@@ -1,0 +1,5 @@
+{
+  "NODE_ENV": "production",
+  "UPTIME_KUMA_DB_TYPE": "mariadb",
+  "UPTIME_KUMA_DB_SSL": "true"
+}

@@ -1,0 +1,110 @@
+name: Uptime Kuma to Heroku
+description: Deploy a standalone Uptime Kuma v2 wrapper with dynamic PORT and verified Aiven MySQL TLS.
+author: Bookpple
+
+inputs:
+  heroku_api_key:
+    description: Heroku API key from GitHub Secrets.
+    required: true
+  docker_image:
+    description: Exact Uptime Kuma v2 tag or sha256 digest matching the existing installation.
+    required: true
+  heroku_app_name:
+    description: Existing app name, or new name. Empty generates a name when creation is allowed.
+  create_new_app:
+    description: Create a missing app; reuse an existing accessible container app.
+    default: 'false'
+  heroku_region:
+    description: Region for a new Cedar container app (eu or us).
+    default: eu
+  heroku_team:
+    description: Optional team for a new app.
+  dyno_type:
+    description: Non-sleeping dyno type. Empty preserves an existing non-Eco type.
+    default: basic
+  db_hostname:
+    description: Aiven MySQL hostname. Empty preserves existing configuration.
+  db_port:
+    description: Aiven MySQL port. Empty preserves existing configuration.
+  db_name:
+    description: Database name. Empty preserves existing configuration.
+  db_username:
+    description: Database username from Secrets. Empty preserves existing configuration.
+  db_password:
+    description: Database password from Secrets. Empty preserves existing configuration.
+  aiven_ca_base64:
+    description: Base64-encoded Aiven CA PEM from Secrets. Empty preserves existing configuration.
+  config_file:
+    description: Optional JSON config file relative to GITHUB_WORKSPACE, or an absolute path.
+  heroku_config_vars:
+    description: Optional literal KEY=VALUE configuration, one assignment per line.
+  heroku_config_vars_json:
+    description: Optional JSON object of string values or null for deletion; highest precedence.
+  dockerhub_username:
+    description: Optional Docker Hub username, paired with dockerhub_token.
+  dockerhub_token:
+    description: Optional Docker Hub token from Secrets.
+  wait_for_health:
+    description: Verify the current release and Kuma database initialization endpoint.
+    default: 'true'
+  healthcheck_timeout:
+    description: Health wait in seconds (10-1800); does not change Heroku's boot timeout.
+    default: '300'
+  show_logs:
+    description: Print masked diagnostics after deployment or failure.
+    default: 'true'
+  log_lines:
+    description: Number of runtime log lines (1-1500).
+    default: '100'
+
+outputs:
+  app_name:
+    description: Heroku app name.
+    value: ${{ steps.deploy.outputs.app_name }}
+  app_url:
+    description: Heroku application URL.
+    value: ${{ steps.deploy.outputs.app_url }}
+  image:
+    description: Heroku registry image reference.
+    value: ${{ steps.deploy.outputs.image }}
+  image_id:
+    description: Built Docker image ID.
+    value: ${{ steps.deploy.outputs.image_id }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Heroku CLI if needed
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v heroku >/dev/null 2>&1; then
+          curl -fsSL https://cli-assets.heroku.com/install.sh | sh
+        fi
+    - name: Build and deploy Uptime Kuma
+      id: deploy
+      shell: bash
+      env:
+        INPUT_HEROKU_API_KEY: ${{ inputs.heroku_api_key }}
+        INPUT_DOCKER_IMAGE: ${{ inputs.docker_image }}
+        INPUT_HEROKU_APP_NAME: ${{ inputs.heroku_app_name }}
+        INPUT_CREATE_NEW_APP: ${{ inputs.create_new_app }}
+        INPUT_HEROKU_REGION: ${{ inputs.heroku_region }}
+        INPUT_HEROKU_TEAM: ${{ inputs.heroku_team }}
+        INPUT_DYNO_TYPE: ${{ inputs.dyno_type }}
+        INPUT_DB_HOSTNAME: ${{ inputs.db_hostname }}
+        INPUT_DB_PORT: ${{ inputs.db_port }}
+        INPUT_DB_NAME: ${{ inputs.db_name }}
+        INPUT_DB_USERNAME: ${{ inputs.db_username }}
+        INPUT_DB_PASSWORD: ${{ inputs.db_password }}
+        INPUT_AIVEN_CA_BASE64: ${{ inputs.aiven_ca_base64 }}
+        INPUT_CONFIG_FILE: ${{ inputs.config_file }}
+        INPUT_HEROKU_CONFIG_VARS: ${{ inputs.heroku_config_vars }}
+        INPUT_HEROKU_CONFIG_VARS_JSON: ${{ inputs.heroku_config_vars_json }}
+        INPUT_DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
+        INPUT_DOCKERHUB_TOKEN: ${{ inputs.dockerhub_token }}
+        INPUT_WAIT_FOR_HEALTH: ${{ inputs.wait_for_health }}
+        INPUT_HEALTHCHECK_TIMEOUT: ${{ inputs.healthcheck_timeout }}
+        INPUT_SHOW_LOGS: ${{ inputs.show_logs }}
+        INPUT_LOG_LINES: ${{ inputs.log_lines }}
+      run: python3 "$GITHUB_ACTION_PATH/deploy.py"
